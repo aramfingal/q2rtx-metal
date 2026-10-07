@@ -353,7 +353,7 @@ set(SRC_RT_SHADERS
 
 # Only build shaders in 64-bit builds, because the client
 # is also only built for 64-bit systems.
-IF(IS_64_BIT)
+IF(IS_64_BIT AND CONFIG_VKPT_RENDERER)
     include(../cmake/compileShaders.cmake)
 
     foreach(s ${SRC_RT_SHADERS})
@@ -486,7 +486,9 @@ IF (TARGET client)
         TARGET_COMPILE_DEFINITIONS(client PRIVATE USE_CURL=1)
     ENDIF()
 
-    add_dependencies(client shaders)
+    IF(TARGET shaders)
+        add_dependencies(client shaders)
+    ENDIF()
 
     IF (CONFIG_GL_RENDERER)
         TARGET_SOURCES(client PRIVATE ${SRC_GL} ${HEADERS_GL})
@@ -575,7 +577,12 @@ if(TARGET client)
     TARGET_LINK_LIBRARIES(client z)
 endif()
 
-IF(UNIX)
+IF(APPLE)
+    TARGET_LINK_LIBRARIES(server m pthread)
+    IF(TARGET client)
+        TARGET_LINK_LIBRARIES(client m)
+    ENDIF()
+ELSEIF(UNIX)
     TARGET_LINK_LIBRARIES(server dl rt m pthread)
     IF(TARGET client)
         TARGET_LINK_LIBRARIES(client m)
@@ -630,7 +637,7 @@ SET_TARGET_PROPERTIES(game
 )
 
 IF(IS_64_BIT)
-	IF(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	IF(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
 		SET_TARGET_PROPERTIES(game
 			PROPERTIES
 			LIBRARY_OUTPUT_NAME "gameaarch64"

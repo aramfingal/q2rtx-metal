@@ -26,7 +26,13 @@ execute_process(
 
 
 OPTION(CONFIG_GL_RENDERER "Enable GL renderer" ON)
-OPTION(CONFIG_VKPT_RENDERER "Enable VKPT renderer" ON)
+IF(APPLE)
+    # macOS has no native Vulkan ray tracing; the Metal renderer replaces VKPT there.
+    SET(DEFAULT_VKPT_RENDERER OFF)
+ELSE()
+    SET(DEFAULT_VKPT_RENDERER ON)
+ENDIF()
+OPTION(CONFIG_VKPT_RENDERER "Enable VKPT renderer" ${DEFAULT_VKPT_RENDERER})
 OPTION(CONFIG_VKPT_ENABLE_DEVICE_GROUPS "Enable device groups (multi-gpu) support" ON)
 OPTION(CONFIG_VKPT_ENABLE_IMAGE_DUMPS "Enable image dumping functionality" OFF)
 OPTION(CONFIG_USE_CURL "Use CURL for HTTP support" ON)
