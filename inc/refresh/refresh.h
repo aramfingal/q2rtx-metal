@@ -357,5 +357,8 @@ void R_RegisterFunctionsGL(void);
 #if REF_VKPT
 void R_RegisterFunctionsRTX(void);
 #endif
+#if REF_METAL
+void R_RegisterFunctionsMetal(void);
+#endif
 
 r_opengl_config_t *R_GetGLConfig(void);

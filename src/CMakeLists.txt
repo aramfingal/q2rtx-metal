@@ -299,6 +299,19 @@ SET(HEADERS_VKPT
 	refresh/vkpt/conversion.h
 )
 
+SET(SRC_METAL
+	refresh/metal/draw.c
+	refresh/metal/main.c
+	refresh/metal/models.c
+	refresh/metal/textures.c
+	refresh/metal/mtl_device.cpp
+)
+
+SET(HEADERS_METAL
+	refresh/metal/metal.h
+	refresh/metal/mtl_api.h
+)
+
 set(SRC_SHADERS
 	refresh/vkpt/shader/animate_materials.comp
 	refresh/vkpt/shader/god_rays_filter.comp
@@ -511,6 +524,20 @@ IF (TARGET client)
         ELSE ()
         TARGET_LINK_LIBRARIES(client vulkan)
         ENDIF()
+    ENDIF()
+
+    IF (CONFIG_METAL_RENDERER AND APPLE)
+        enable_language(CXX)
+        TARGET_SOURCES(client PRIVATE ${SRC_METAL} ${HEADERS_METAL})
+        TARGET_INCLUDE_DIRECTORIES(client PRIVATE ${CMAKE_SOURCE_DIR}/extern/metal-cpp)
+        TARGET_COMPILE_DEFINITIONS(client PRIVATE REF_METAL=1 USE_REF=1)
+        # metal-cpp needs C++17
+        SET_SOURCE_FILES_PROPERTIES(refresh/metal/mtl_device.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17")
+        TARGET_LINK_LIBRARIES(client
+            "-framework Metal"
+            "-framework MetalFX"
+            "-framework QuartzCore"
+            "-framework Foundation")
     ENDIF()
 
     TARGET_LINK_LIBRARIES(client stb)

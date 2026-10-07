@@ -36,6 +36,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "../res/q2pro.xbm"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
+#if REF_METAL
+#include <SDL2/SDL_metal.h>
+#endif
 
 #ifdef _WINDOWS
 #include <ShellScalingAPI.h>
@@ -139,6 +142,10 @@ static void mode_changed(void)
     Uint32 flags = SDL_GetWindowFlags(sdl.window);
     if (flags & SDL_WINDOW_VULKAN)
         SDL_Vulkan_GetDrawableSize(sdl.window, &sdl.width, &sdl.height);
+#if REF_METAL
+    else if (flags & SDL_WINDOW_METAL)
+        SDL_Metal_GetDrawableSize(sdl.window, &sdl.width, &sdl.height);
+#endif
     else
         SDL_GL_GetDrawableSize(sdl.window, &sdl.width, &sdl.height);
 
@@ -362,6 +369,13 @@ static bool init(graphics_api_t api)
 	{
 		flags |= SDL_WINDOW_VULKAN;
 	}
+
+#if REF_METAL
+	if (api == GAPI_METAL)
+	{
+		flags |= SDL_WINDOW_METAL;
+	}
+#endif
 
 	sdl.window = SDL_CreateWindow(PRODUCT, rc.x, rc.y, rc.width, rc.height, flags);
     if (!sdl.window) {

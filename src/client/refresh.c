@@ -321,7 +321,7 @@ void CL_InitRefresh(void)
     // Create the video variables so we know how to start the graphics drivers
 
 	vid_rtx = Cvar_Get("vid_rtx", 
-#if REF_VKPT
+#if REF_VKPT || REF_METAL
 		"1",
 #else
 		"0",
@@ -342,17 +342,24 @@ void CL_InitRefresh(void)
 
     Com_SetLastError("No available video driver");
 
-#if REF_GL && REF_VKPT
+#if REF_METAL
+	// The Metal renderer is the RTX renderer on macOS; it replaces VKPT there.
+	#define R_RegisterFunctionsPT R_RegisterFunctionsMetal
+#elif REF_VKPT
+	#define R_RegisterFunctionsPT R_RegisterFunctionsRTX
+#endif
+
+#if REF_GL && (REF_VKPT || REF_METAL)
 	if (vid_rtx->integer)
-		R_RegisterFunctionsRTX();
+		R_RegisterFunctionsPT();
 	else
 		R_RegisterFunctionsGL();
 #elif REF_GL
 	R_RegisterFunctionsGL();
-#elif REF_VKPT
-	R_RegisterFunctionsRTX();
+#elif REF_VKPT || REF_METAL
+	R_RegisterFunctionsPT();
 #else
-#error "REF_GL and REF_VKPT are both disabled, at least one has to be enableds"
+#error "REF_GL, REF_VKPT and REF_METAL are all disabled, at least one has to be enabled"
 #endif
 
     // Try to initialize selected driver first
