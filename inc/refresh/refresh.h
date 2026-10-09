@@ -354,11 +354,8 @@ extern bool    (*R_IsHDR)(void);
 #if REF_GL
 void R_RegisterFunctionsGL(void);
 #endif
-#if REF_VKPT
+#if REF_VKPT || REF_METAL
 void R_RegisterFunctionsRTX(void);
-#endif
-#if REF_METAL
-void R_RegisterFunctionsMetal(void);
 #endif
 
 r_opengl_config_t *R_GetGLConfig(void);

@@ -342,12 +342,8 @@ void CL_InitRefresh(void)
 
     Com_SetLastError("No available video driver");
 
-#if REF_METAL
-	// The Metal renderer is the RTX renderer on macOS; it replaces VKPT there.
-	#define R_RegisterFunctionsPT R_RegisterFunctionsMetal
-#elif REF_VKPT
+	// On macOS (REF_METAL) the RTX renderer is vkpt running on Metal.
 	#define R_RegisterFunctionsPT R_RegisterFunctionsRTX
-#endif
 
 #if REF_GL && (REF_VKPT || REF_METAL)
 	if (vid_rtx->integer)

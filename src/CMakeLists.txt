@@ -300,17 +300,14 @@ SET(HEADERS_VKPT
 )
 
 SET(SRC_METAL
-	refresh/metal/draw.c
-	refresh/metal/main.c
-	refresh/metal/models.c
-	refresh/metal/textures.c
-	refresh/metal/world.c
-	refresh/metal/mtl_device.cpp
+	refresh/metal/vk_metal_commands.cpp
+	refresh/metal/vk_metal_device.cpp
+	refresh/metal/vk_metal_pipeline.cpp
 )
 
 SET(HEADERS_METAL
-	refresh/metal/metal.h
-	refresh/metal/mtl_api.h
+	refresh/metal/vk_metal.h
+	refresh/metal/vk_metal_internal.hpp
 )
 
 set(SRC_SHADERS
@@ -394,6 +391,11 @@ ENDIF()
 # Ray tracing goes through ray queries, so only the ray generation shaders are needed,
 # built as compute shaders.
 IF(IS_64_BIT AND CONFIG_METAL_RENDERER AND APPLE)
+    enable_language(CXX)
+    add_executable(mslgen refresh/metal/mslgen/mslgen.cpp)
+    target_link_libraries(mslgen PRIVATE spirv-cross-msl)
+    set_target_properties(mslgen PROPERTIES CXX_STANDARD 17 RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Bin")
+
     include(../cmake/compileShaders.cmake)
 
     foreach(s ${SRC_RT_SHADERS})
@@ -554,11 +556,19 @@ IF (TARGET client)
 
     IF (CONFIG_METAL_RENDERER AND APPLE)
         enable_language(CXX)
-        TARGET_SOURCES(client PRIVATE ${SRC_METAL} ${HEADERS_METAL})
-        TARGET_INCLUDE_DIRECTORIES(client PRIVATE ${CMAKE_SOURCE_DIR}/extern/metal-cpp)
+        # The path tracer is vkpt, running on the Vulkan subset that refresh/metal
+        # implements on Metal instead of on a Vulkan driver.
+        TARGET_SOURCES(client PRIVATE ${SRC_VKPT} ${HEADERS_VKPT} ${SRC_METAL} ${HEADERS_METAL})
+        TARGET_INCLUDE_DIRECTORIES(client PRIVATE
+            ${CMAKE_SOURCE_DIR}/extern/metal-cpp
+            ${CMAKE_SOURCE_DIR}/extern/Vulkan-Headers/include)
         TARGET_COMPILE_DEFINITIONS(client PRIVATE REF_METAL=1 USE_REF=1)
+        IF (CONFIG_VKPT_ENABLE_DEVICE_GROUPS)
+            TARGET_COMPILE_DEFINITIONS(client PRIVATE VKPT_DEVICE_GROUPS)
+        ENDIF()
         # metal-cpp needs C++17
-        SET_SOURCE_FILES_PROPERTIES(refresh/metal/mtl_device.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17")
+        SET_SOURCE_FILES_PROPERTIES(${SRC_METAL} PROPERTIES COMPILE_OPTIONS "-std=c++17")
+        add_dependencies(client shaders_metal)
         TARGET_LINK_LIBRARIES(client
             "-framework Metal"
             "-framework MetalFX"

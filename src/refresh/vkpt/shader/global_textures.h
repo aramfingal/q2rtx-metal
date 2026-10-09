@@ -161,7 +161,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define BINDING_OFFSET_TERRAIN_NORMALS (BINDING_OFFSET_TERRAIN_ALBEDO + 1)
 #define BINDING_OFFSET_TERRAIN_DEPTH (BINDING_OFFSET_TERRAIN_NORMALS + 1)
 #define BINDING_OFFSET_TERRAIN_SHADOWMAP (BINDING_OFFSET_TERRAIN_DEPTH + 1)
-#define BINDING_OFFSET_TEXTURE_SAMPLER (BINDING_OFFSET_TERRAIN_SHADOWMAP + 1)
 
 
 #ifndef VKPT_SHADER
@@ -192,10 +191,12 @@ typedef char compile_time_check_num_images[(NUM_IMAGES == NUM_VKPT_IMAGES)*2-1];
 
 /* general texture array for world, etc */
 #ifdef TARGET_METAL
-// Metal argument buffers cannot hold an unsized array of combined image samplers, so
-// the Metal renderer binds the textures on their own and samples them all with one sampler.
+// Metal argument buffers cannot hold an unsized array of combined image samplers, and
+// only one unsized array each. The textures stay in this set, and their samplers go to
+// an array of their own in a companion set that the Metal renderer fills alongside.
 #define TEXTURE_ARRAY_TYPE texture2D
-#define GLOBAL_TEXTURE(idx) sampler2D(global_texture_descriptors[nonuniformEXT(idx)], global_texture_sampler)
+#define GLOBAL_TEXTURE_SAMPLERS_DESC_SET_IDX (GLOBAL_TEXTURES_DESC_SET_IDX + 4)
+#define GLOBAL_TEXTURE(idx) sampler2D(global_texture_descriptors[nonuniformEXT(idx)], global_texture_samplers[nonuniformEXT(idx)])
 #else
 #define TEXTURE_ARRAY_TYPE sampler2D
 #define GLOBAL_TEXTURE(idx) global_texture_descriptors[nonuniformEXT(idx)]
@@ -207,9 +208,9 @@ layout(
 
 #ifdef TARGET_METAL
 layout(
-	set = GLOBAL_TEXTURES_DESC_SET_IDX,
-	binding = BINDING_OFFSET_TEXTURE_SAMPLER
-) uniform sampler global_texture_sampler;
+	set = GLOBAL_TEXTURE_SAMPLERS_DESC_SET_IDX,
+	binding = 0
+) uniform sampler global_texture_samplers[];
 #endif
 
 #define SAMPLER_r16ui   usampler2D

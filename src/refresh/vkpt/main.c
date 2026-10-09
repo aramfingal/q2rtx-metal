@@ -1515,7 +1515,7 @@ create_shader_module_from_file(const char *name, const char *enum_name, bool is_
 	}
 
 	char path[1024];
-	snprintf(path, sizeof path, "shader_vkpt/%s%s.spv", name ? name : (enum_name + 8), suffix);
+	snprintf(path, sizeof path, VKPT_SHADER_DIR "/%s%s" VKPT_SHADER_EXT, name ? name : (enum_name + 8), suffix);
 	if(!name) {
 		int len = 0;
 		for(len = 0; path[len]; len++)
@@ -3756,7 +3756,7 @@ R_Init_RTX(bool total)
 {
 	registration_sequence = 1;
 
-	if (!vid.init(GAPI_VULKAN)) {
+	if (!vid.init(VKPT_GRAPHICS_API)) {
 		Com_Error(ERR_FATAL, "VID_Init failed\n");
 		return REF_TYPE_NONE;
 	}

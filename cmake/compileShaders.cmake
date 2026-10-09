@@ -103,7 +103,7 @@ function(compile_shader)
     set(${params_OUTPUT_FILE_LIST} ${${params_OUTPUT_FILE_LIST}} ${out_file} PARENT_SCOPE)
 endfunction()
 
-# Metal: GLSL -> SPIR-V (glslang) -> Metal Shading Language (SPIRV-Cross).
+# Metal: GLSL -> SPIR-V (glslang) -> Metal Shading Language (mslgen, built on SPIRV-Cross).
 #
 # The .metal sources go to baseq2/shader_metal. If Apple's offline Metal compiler is
 # installed (it comes with Xcode, not with the command line tools), each one is also
@@ -172,30 +172,14 @@ function(compile_shader_metal)
             "${src_file}"
             -o "${spv_file}")
 
-    # Unsized arrays (the texture and primitive buffer tables) need argument buffers
-    # with device storage; native arrays keep the acceleration structure array usable
-    # as a function argument.
-    set(spirv_cross_command_line
-            --msl
-            --msl-version 30100
-            --msl-argument-buffers
-            --msl-argument-buffer-tier 1
-            --msl-device-argument-buffer 0
-            --msl-device-argument-buffer 1
-            --msl-device-argument-buffer 2
-            --msl-device-argument-buffer 3
-            --msl-force-native-arrays
-            "${spv_file}"
-            --output "${msl_file}")
-
     add_custom_command(OUTPUT ${msl_file}
                        DEPENDS ${src_file}
                        DEPENDS ${SHADER_SOURCE_DEPENDENCIES}
-                       DEPENDS spirv-cross
+                       DEPENDS mslgen
                        MAIN_DEPENDENCY ${src_file}
                        COMMAND ${CMAKE_COMMAND} -E make_directory ${spv_dir} ${out_dir}
                        COMMAND ${GLSLANG_COMPILER} ${glslang_command_line}
-                       COMMAND spirv-cross ${spirv_cross_command_line})
+                       COMMAND mslgen "${spv_file}" "${msl_file}")
 
     set(out_files ${msl_file})
 

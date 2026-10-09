@@ -24,6 +24,23 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
 
+#if REF_METAL
+// On macOS vkpt runs on the Vulkan subset that refresh/metal implements on Metal, and
+// the window is a Metal one.
+#include <SDL2/SDL_metal.h>
+#include "../metal/vk_metal.h"
+#define SDL_Vulkan_GetInstanceExtensions vkmtl_get_instance_extensions
+#define SDL_Vulkan_CreateSurface vkmtl_create_surface
+#define SDL_Vulkan_GetDrawableSize SDL_Metal_GetDrawableSize
+#define VKPT_GRAPHICS_API GAPI_METAL
+#define VKPT_SHADER_DIR "shader_metal"
+#define VKPT_SHADER_EXT ".metal"
+#else
+#define VKPT_GRAPHICS_API GAPI_VULKAN
+#define VKPT_SHADER_DIR "shader_vkpt"
+#define VKPT_SHADER_EXT ".spv"
+#endif
+
 #if !defined(HAVE_M_PI)
 #define HAVE_M_PI
 #endif // !defined(HAVE_M_PI)
