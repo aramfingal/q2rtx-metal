@@ -18,15 +18,11 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #define AL_ALEXT_PROTOTYPES
 
-#ifdef __APPLE__
-#include <OpenAL/al.h>
-#include <OpenAL/alext.h>
-#include <OpenAL/efx.h>
-#else
+// Always OpenAL Soft (bundled in extern/openal-soft): Apple's OpenAL framework
+// has no alext.h or efx.h.
 #include <AL/al.h>
 #include <AL/alext.h>
 #include <AL/efx.h>
-#endif
 
 #define qalEnable alEnable
 #define qalDisable alDisable
