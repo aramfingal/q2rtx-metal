@@ -1128,7 +1128,8 @@ void debug_frame(void)
     if (stats && frame % 30 == 29) {
         static double last;
         double now = CACurrentMediaTime();
-        vkmtl_print("frame %d: %.1f ms GPU per frame, %.1f frames per second\n", frame,
+        // command buffers of consecutive frames overlap, so the GPU time is an upper bound
+        vkmtl_print("frame %d: at most %.1f ms GPU per frame, %.1f frames per second\n", frame,
                     gpu_microseconds.exchange(0) / 30000.0, last > 0.0 ? 30.0 / (now - last) : 0.0);
         last = now;
     }

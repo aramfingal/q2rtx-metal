@@ -1,5 +1,46 @@
 # Quake II RTX
 
+## macOS / Metal port
+
+This fork runs Quake II RTX on macOS with Apple's Metal ray tracing. The path tracer is
+the original one (`src/refresh/vkpt`), unchanged apart from a few lines: on macOS it runs
+on an implementation of the part of the Vulkan API it uses, written directly on Metal
+(`src/refresh/metal`), and its GLSL shaders are translated to the Metal Shading Language
+at build time (GLSL → SPIR-V with glslang → MSL with SPIRV-Cross, ray queries becoming
+Metal `intersection_query`). There is no MoltenVK or other Vulkan driver involved.
+
+**Requirements**: an Apple silicon Mac with macOS 15 or later, CMake, and the Xcode
+command line tools. Full Xcode is optional; if its Metal compiler is found, every
+translated shader is also compiled at build time, which catches shader errors early.
+
+**Build and run**:
+
+    git clone --recursive https://github.com/aramfingal/q2rtx-metal.git
+    cd q2rtx-metal
+    cmake -S . -B build
+    cmake --build build -j
+    ./q2rtx
+
+Put the game data in `baseq2/`: `pak0.pak` (and `pak1.pak`, `pak2.pak`, the `players`
+and `video` folders for the full game) from Quake II, plus `blue_noise.pkz` and
+`q2rtx_media.pkz` from a Quake II RTX [release](https://github.com/NVIDIA/Q2RTX/releases)
+(they are in the Linux archive under `q2rtx/baseq2`).
+
+**What is different from the Vulkan renderer**: ray tracing always uses ray queries
+(`ray_tracing_api` has no effect), HDR output is not available, and the profiler
+overlay (`profiler 1`) shows no GPU timings.
+
+**Unattended testing**: `vid_hidden 1` runs the game without a window, drawing
+off-screen, and `scripts/metal-shot.sh` uses it to run console commands and collect
+in-game screenshots:
+
+    scripts/metal-shot.sh /tmp/shots "map base1" "wait 200" "screenshot"
+
+Environment variables for development: `VKMTL_STATS=1` prints frame time,
+`VKMTL_PROFILE=1` the GPU time per shader pass, `VKMTL_DUMP_FRAME=N` statistics of every
+render target at frame N, and with `MTL_SHADER_VALIDATION=1` invalid accesses reported by
+Metal's shader validation are printed to the console.
+
 ## Project Discontinued
 
 **This repository is no longer maintained.**
@@ -124,6 +165,7 @@ Note: Linux ppc64le is also known to work though not officially supported.
 * [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers)
 * [glslang](https://github.com/KhronosGroup/glslang) (optional, see the `CONFIG_BUILD_GLSLANG` CMake option)
 * [openal-soft](https://github.com/kcat/openal-soft)
+* [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) (macOS only, translates the shaders to Metal)
 
 ## Build Instructions
 

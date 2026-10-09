@@ -44,12 +44,12 @@ endif()
 #
 
 if(CONFIG_METAL_RENDERER AND APPLE)
+    # only the libraries are needed: mslgen uses the API
     option(SPIRV_CROSS_ENABLE_TESTS OFF)
     option(SPIRV_CROSS_SHARED OFF)
+    option(SPIRV_CROSS_CLI OFF)
 
     add_subdirectory(SPIRV-Cross)
-
-    set_target_properties(spirv-cross PROPERTIES FOLDER extern)
 endif()
 
 #
