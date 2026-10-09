@@ -52,6 +52,7 @@ MTL::ComputeCommandEncoder *CommandBuffer::compute_encoder()
     if (!compute) {
         end_encoder();
         compute = cmd->computeCommandEncoder()->retain();
+        compute->useResource(g.order_token, MTL::ResourceUsageWrite);
     }
     return compute;
 }
@@ -703,8 +704,26 @@ void vkCmdPipelineBarrier(VkCommandBuffer, VkPipelineStageFlags, VkPipelineStage
 {
 }
 
-void vkCmdWriteTimestamp(VkCommandBuffer, VkPipelineStageFlagBits, VkQueryPool, uint32_t)
+void vkCmdWriteTimestamp(VkCommandBuffer handle, VkPipelineStageFlagBits, VkQueryPool pool_handle, uint32_t query)
 {
+    CommandBuffer *cb = VKMTL_HANDLE(CommandBuffer, handle);
+    QueryPool *pool = VKMTL_HANDLE(QueryPool, pool_handle);
+    if (!pool->samples || query >= pool->count)
+        return;
+
+    // Apple GPUs sample counters at encoder boundaries only: an empty pass that samples
+    // the timestamp when it starts marks this point in the command buffer.
+    cb->end_encoder();
+    MTL::BlitPassDescriptor *pass = MTL::BlitPassDescriptor::blitPassDescriptor();
+    MTL::BlitPassSampleBufferAttachmentDescriptor *att = pass->sampleBufferAttachments()->object(0);
+    att->setSampleBuffer(pool->samples);
+    att->setStartOfEncoderSampleIndex(query);
+    att->setEndOfEncoderSampleIndex(MTL::CounterDontSample);
+    // The pass has to do something, or Metal drops it along with its sample. Writing
+    // the ordering token also places it after the passes recorded before it.
+    MTL::BlitCommandEncoder *blit = cb->cmd->blitCommandEncoder(pass);
+    blit->fillBuffer(g.order_token, NS::Range::Make(0, 16), 0);
+    blit->endEncoding();
 }
 
 void vkCmdResetQueryPool(VkCommandBuffer, VkQueryPool, uint32_t, uint32_t)
@@ -777,6 +796,7 @@ void vkCmdBeginRenderPass(VkCommandBuffer handle, const VkRenderPassBeginInfo *i
     }
 
     cb->render = cb->cmd->renderCommandEncoder(pass)->retain();
+    cb->render->useResource(g.order_token, MTL::ResourceUsageWrite, MTL::RenderStageVertex | MTL::RenderStageFragment);
     cb->target_width = fb->width;
     cb->target_height = fb->height;
 }
@@ -981,6 +1001,7 @@ void vkCmdBuildAccelerationStructuresKHR(VkCommandBuffer handle, uint32_t count,
     cb->end_encoder();
 
     MTL::AccelerationStructureCommandEncoder *enc = cb->cmd->accelerationStructureCommandEncoder();
+    enc->useResource(g.order_token, MTL::ResourceUsageWrite);
     for (uint32_t i = 0; i < count; i++) {
         Accel *dst = VKMTL_HANDLE(Accel, infos[i].dstAccelerationStructure);
         MTL::AccelerationStructureDescriptor *desc = accel_descriptor(&infos[i], nullptr, ranges[i], true);

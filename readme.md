@@ -27,8 +27,7 @@ and `video` folders for the full game) from Quake II, plus `blue_noise.pkz` and
 (they are in the Linux archive under `q2rtx/baseq2`).
 
 **What is different from the Vulkan renderer**: ray tracing always uses ray queries
-(`ray_tracing_api` has no effect), HDR output is not available, and the profiler
-overlay (`profiler 1`) shows no GPU timings.
+(`ray_tracing_api` has no effect) and HDR output is not available.
 
 **Unattended testing**: `vid_hidden 1` runs the game without a window, drawing
 off-screen, and `scripts/metal-shot.sh` uses it to run console commands and collect

@@ -243,6 +243,7 @@ VkResult vkCreateInstance(const VkInstanceCreateInfo *, const VkAllocationCallba
             return VK_ERROR_INITIALIZATION_FAILED;
         }
         g.queue->addResidencySet(g.residency);
+        g.order_token = g.device->newBuffer(16, MTL::ResourceStorageModePrivate);
         g.next_address = 1ull << 32;
     }
     g.offscreen = Cvar_VariableInteger("vid_hidden") != 0;
@@ -987,21 +988,66 @@ VkResult vkResetFences(VkDevice, uint32_t count, const VkFence *fences)
 
 // ------------------------------------------------------------------------------ queries, debug
 
-// Timestamps are not collected: the profiler reads zeroes.
-VkResult vkCreateQueryPool(VkDevice, const VkQueryPoolCreateInfo *, const VkAllocationCallbacks *, VkQueryPool *out)
+// A timestamp query pool is a Metal counter sample buffer; vkCmdWriteTimestamp samples
+// the GPU timestamp counter into it at an encoder boundary. vkpt's profiler and its
+// dynamic resolution scaling are driven by these.
+VkResult vkCreateQueryPool(VkDevice, const VkQueryPoolCreateInfo *info, const VkAllocationCallbacks *, VkQueryPool *out)
 {
-    static int dummy;
-    *out = reinterpret_cast<VkQueryPool>(&dummy);
+    QueryPool *pool = new QueryPool();
+    pool->count = info->queryCount;
+
+    if (g.device->supportsCounterSampling(MTL::CounterSamplingPointAtStageBoundary)) {
+        NS::Array *sets = g.device->counterSets();
+        for (NS::UInteger i = 0; sets && i < sets->count(); i++) {
+            MTL::CounterSet *set = sets->object<MTL::CounterSet>(i);
+            if (!set->name()->isEqualToString(MTL::CommonCounterSetTimestamp))
+                continue;
+
+            MTL::CounterSampleBufferDescriptor *desc = MTL::CounterSampleBufferDescriptor::alloc()->init();
+            desc->setCounterSet(set);
+            desc->setSampleCount(info->queryCount);
+            desc->setStorageMode(MTL::StorageModeShared);
+            NS::Error *error = nullptr;
+            pool->samples = g.device->newCounterSampleBuffer(desc, &error);
+            desc->release();
+            break;
+        }
+    }
+    if (!pool->samples)
+        vkmtl_warning("GPU timestamps are not available; the profiler and dynamic resolution scaling won't work\n");
+
+    *out = reinterpret_cast<VkQueryPool>(pool);
     return VK_SUCCESS;
 }
 
-void vkDestroyQueryPool(VkDevice, VkQueryPool, const VkAllocationCallbacks *)
+void vkDestroyQueryPool(VkDevice, VkQueryPool handle, const VkAllocationCallbacks *)
 {
+    QueryPool *pool = VKMTL_HANDLE(QueryPool, handle);
+    if (!pool)
+        return;
+    if (pool->samples)
+        pool->samples->release();
+    delete pool;
 }
 
-VkResult vkGetQueryPoolResults(VkDevice, VkQueryPool, uint32_t, uint32_t, size_t size, void *data, VkDeviceSize, VkQueryResultFlags)
+VkResult vkGetQueryPoolResults(VkDevice, VkQueryPool handle, uint32_t first, uint32_t count, size_t size, void *data,
+                               VkDeviceSize stride, VkQueryResultFlags)
 {
+    QueryPool *pool = VKMTL_HANDLE(QueryPool, handle);
     memset(data, 0, size);
+    if (!pool->samples || first + count > pool->count)
+        return VK_SUCCESS;
+
+    NS::Data *resolved = pool->samples->resolveCounterRange(NS::Range::Make(first, count));
+    if (!resolved || resolved->length() < count * sizeof(MTL::CounterResultTimestamp))
+        return VK_NOT_READY;
+
+    // nanoseconds, matching the timestampPeriod of 1 that the device reports
+    const MTL::CounterResultTimestamp *results = static_cast<const MTL::CounterResultTimestamp *>(resolved->mutableBytes());
+    for (uint32_t i = 0; i < count && (i + 1) * stride <= size; i++) {
+        uint64_t value = results[i].timestamp == MTL::CounterErrorValue ? 0 : results[i].timestamp;
+        memcpy((char *)data + i * stride, &value, sizeof(value));
+    }
     return VK_SUCCESS;
 }
 

@@ -256,6 +256,12 @@ struct CommandBuffer {
     MTL::BlitCommandEncoder *blit_encoder();
 };
 
+// Timestamp queries: one counter sample per query.
+struct QueryPool {
+    MTL::CounterSampleBuffer *samples;
+    uint32_t count;
+};
+
 struct Surface {
     CA::MetalLayer *layer;
     void *view;  // SDL_MetalView
@@ -278,6 +284,12 @@ struct Device {
     uint64_t next_address;
     std::vector<ArgLayout *> arg_layouts;
     std::vector<Image *> images;
+
+    // Written by every pass. Metal orders passes only by the resources it can see them
+    // use, and most of what vkpt's passes share goes through argument buffers, which it
+    // cannot see. A buffer that every pass writes makes the passes of a command buffer
+    // run in the order they were recorded, as they would on Vulkan.
+    MTL::Buffer *order_token;
 };
 
 // Development aid: with VKMTL_DUMP_FRAME=N in the environment, prints statistics of
