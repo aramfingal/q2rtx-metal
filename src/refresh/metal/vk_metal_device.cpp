@@ -542,7 +542,7 @@ void vkDestroyBufferView(VkDevice, VkBufferView handle, const VkAllocationCallba
 
 // ------------------------------------------------------------------------------ images
 
-static MTL::Texture *create_texture(const VkImageCreateInfo *info, bool swapchain)
+static MTL::Texture *create_texture(const VkImageCreateInfo *info)
 {
     MTL::TextureDescriptor *desc = MTL::TextureDescriptor::alloc()->init();
 
@@ -584,7 +584,6 @@ static MTL::Texture *create_texture(const VkImageCreateInfo *info, bool swapchai
         residency_add(texture);
     else
         vkmtl_error("couldn't create a %ux%u texture\n", info->extent.width, info->extent.height);
-    (void)swapchain;
     return texture;
 }
 
@@ -593,7 +592,7 @@ VkResult vkCreateImage(VkDevice, const VkImageCreateInfo *info, const VkAllocati
     Image *image = new Image();
     image->info = *info;
     image->info.pNext = nullptr;
-    image->texture = create_texture(info, false);
+    image->texture = create_texture(info);
     if (!image->texture) {
         delete image;
         return VK_ERROR_OUT_OF_DEVICE_MEMORY;
@@ -853,7 +852,7 @@ VkResult vkCreateSwapchainKHR(VkDevice, const VkSwapchainCreateInfoKHR *info, co
 
     swapchain->image.info = image_info;
     swapchain->image.is_swapchain = true;
-    swapchain->image.texture = create_texture(&image_info, true);
+    swapchain->image.texture = create_texture(&image_info);
     if (!swapchain->image.texture) {
         delete swapchain;
         return VK_ERROR_OUT_OF_DEVICE_MEMORY;
