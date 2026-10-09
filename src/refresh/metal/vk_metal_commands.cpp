@@ -21,6 +21,8 @@ GNU General Public License for more details.
 
 #include "vk_metal_internal.hpp"
 
+#include <atomic>
+#include <mutex>
 #include <stdlib.h>
 #include <string.h>
 
@@ -247,8 +249,8 @@ bool prepare_draw(CommandBuffer *cb)
         return false;
     enc->setScissorRect(MTL::ScissorRect{ (NS::UInteger)x0, (NS::UInteger)y0, (NS::UInteger)(x1 - x0), (NS::UInteger)(y1 - y0) });
 
-    bind_stage_sets(cb, 0, pipeline->stages[0], [enc](MTL::Buffer *b, uint32_t i) { enc->setVertexBuffer(b, 0, i); });
-    bind_stage_sets(cb, 0, pipeline->stages[1], [enc](MTL::Buffer *b, uint32_t i) { enc->setFragmentBuffer(b, 0, i); });
+    bind_stage_sets(cb, 0, pipeline->stages[0], [enc](const DescSet::Encoded &e, uint32_t i) { enc->setVertexBuffer(e.buffer, 0, i); });
+    bind_stage_sets(cb, 0, pipeline->stages[1], [enc](const DescSet::Encoded &e, uint32_t i) { enc->setFragmentBuffer(e.buffer, 0, i); });
     if (pipeline->stages[0].has_push)
         enc->setVertexBytes(cb->push, sizeof(cb->push), PUSH_CONSTANT_BUFFER_INDEX);
     if (pipeline->stages[1].has_push)
@@ -260,6 +262,46 @@ bool prepare_draw(CommandBuffer *cb)
                                  VERTEX_BUFFER_BASE_INDEX + i);
     }
     return true;
+}
+
+// Vulkan allows a top-level structure without instances, and vkpt builds one whenever
+// a frame has no effects. Tracing an empty Metal structure stalls the GPU, so an empty
+// one gets a single instance that no ray can hit: a tiny triangle with instance mask 0.
+MTL::AccelerationStructure *placeholder_blas(void)
+{
+    static MTL::AccelerationStructure *blas;
+    if (blas)
+        return blas;
+
+    static const float triangle[9] = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    MTL::Buffer *vertices = g.device->newBuffer(triangle, sizeof(triangle), MTL::ResourceStorageModeShared);
+
+    MTL::AccelerationStructureTriangleGeometryDescriptor *geometry =
+        MTL::AccelerationStructureTriangleGeometryDescriptor::descriptor();
+    geometry->setVertexBuffer(vertices);
+    geometry->setVertexStride(3 * sizeof(float));
+    geometry->setVertexFormat(MTL::AttributeFormatFloat3);
+    geometry->setTriangleCount(1);
+
+    MTL::PrimitiveAccelerationStructureDescriptor *desc = MTL::PrimitiveAccelerationStructureDescriptor::descriptor();
+    desc->setGeometryDescriptors(NS::Array::array(geometry));
+
+    MTL::AccelerationStructureSizes sizes = g.device->accelerationStructureSizes(desc);
+    blas = g.device->newAccelerationStructure(sizes.accelerationStructureSize);
+    MTL::Buffer *scratch = g.device->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
+
+    // Committed right away, so it runs before the command buffer that first uses it.
+    MTL::CommandBuffer *cmd = g.queue->commandBuffer();
+    MTL::AccelerationStructureCommandEncoder *enc = cmd->accelerationStructureCommandEncoder();
+    enc->buildAccelerationStructure(blas, desc, scratch, 0);
+    enc->endEncoding();
+    cmd->commit();
+
+    scratch->release();
+    vertices->release();
+    residency_add(blas);
+    residency_commit();
+    return blas;
 }
 
 MTL::AccelerationStructureDescriptor *accel_descriptor(const VkAccelerationStructureBuildGeometryInfoKHR *info,
@@ -277,26 +319,40 @@ MTL::AccelerationStructureDescriptor *accel_descriptor(const VkAccelerationStruc
 
         MTL::InstanceAccelerationStructureDescriptor *desc = MTL::InstanceAccelerationStructureDescriptor::descriptor();
         desc->setUsage(usage);
-        desc->setInstanceDescriptorType(MTL::AccelerationStructureInstanceDescriptorTypeIndirect);
-        desc->setInstanceCount(count);
+        desc->setInstanceDescriptorType(MTL::AccelerationStructureInstanceDescriptorTypeUserID);
+        desc->setInstanceCount(count ? count : 1);
+        if (!for_build)
+            return desc;
 
-        if (for_build && count) {
+        // The bottom-level structures are listed in the descriptor, rather than being
+        // referenced by resource ID from the instances, so that Metal knows this build
+        // has to wait for the builds of the structures it instances.
+        std::vector<NS::Object *> list;
+        std::map<Accel *, uint32_t> indices;
+
+        MTL::Buffer *buffer = g.device->newBuffer((count ? count : 1) * sizeof(MTL::AccelerationStructureUserIDInstanceDescriptor),
+                                                  MTL::ResourceStorageModeShared);
+        auto *dst = static_cast<MTL::AccelerationStructureUserIDInstanceDescriptor *>(buffer->contents());
+
+        if (!count) {
+            memset(dst, 0, sizeof(*dst));
+            for (int c = 0; c < 3; c++)
+                dst->transformationMatrix.columns[c].elements[c] = 1.0f;
+            list.push_back(placeholder_blas());
+        } else {
             MTL::Buffer *src_buffer;
             size_t src_offset;
             if (!resolve_address(geom.geometry.instances.data.deviceAddress, &src_buffer, &src_offset)) {
                 vkmtl_error("instance data address is not in a buffer\n");
+                buffer->release();
                 return nullptr;
             }
             const VkAccelerationStructureInstanceKHR *src =
                 (const VkAccelerationStructureInstanceKHR *)((const char *)src_buffer->contents() + src_offset);
 
-            MTL::Buffer *buffer = g.device->newBuffer(count * sizeof(MTL::IndirectAccelerationStructureInstanceDescriptor),
-                                                      MTL::ResourceStorageModeShared);
-            auto *dst = static_cast<MTL::IndirectAccelerationStructureInstanceDescriptor *>(buffer->contents());
-
             for (uint32_t i = 0; i < count; i++) {
                 const VkAccelerationStructureInstanceKHR &in = src[i];
-                MTL::IndirectAccelerationStructureInstanceDescriptor &out = dst[i];
+                MTL::AccelerationStructureUserIDInstanceDescriptor &out = dst[i];
                 memset(&out, 0, sizeof(out));
 
                 // row-major 3x4 to four columns
@@ -321,14 +377,24 @@ MTL::AccelerationStructureDescriptor *accel_descriptor(const VkAccelerationStruc
                 out.userID = in.instanceCustomIndex | (in.instanceShaderBindingTableRecordOffset << 28);
 
                 Accel *blas = reinterpret_cast<Accel *>(in.accelerationStructureReference);
-                if (blas)
-                    out.accelerationStructureID = blas->as->gpuResourceID();
-                else
+                if (!blas) {
                     out.mask = 0;
+                    continue;
+                }
+                auto found = indices.find(blas);
+                if (found == indices.end()) {
+                    found = indices.emplace(blas, (uint32_t)list.size()).first;
+                    list.push_back(blas->as);
+                }
+                out.accelerationStructureIndex = found->second;
             }
-            desc->setInstanceDescriptorBuffer(buffer);
-            buffer->release();  // the descriptor and then the command buffer keep it
+            if (list.empty())
+                list.push_back(placeholder_blas());
         }
+
+        desc->setInstancedAccelerationStructures(NS::Array::array(list.data(), list.size()));
+        desc->setInstanceDescriptorBuffer(buffer);
+        buffer->release();  // the descriptor and then the command buffer keep it
         return desc;
     }
 
@@ -398,6 +464,60 @@ MTL::AccelerationStructureDescriptor *accel_descriptor(const VkAccelerationStruc
 }
 
 }  // namespace
+
+namespace vkmtl {
+
+std::atomic<long long> gpu_microseconds;
+
+static std::mutex profile_mutex;
+static std::map<std::string, double> profile_seconds;
+
+bool profiling(void)
+{
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("VKMTL_PROFILE") != nullptr;
+    return enabled;
+}
+
+// Commits what was recorded so far, so that the GPU time of this command buffer is
+// the time of the one dispatch in it.
+void profile_dispatch(CommandBuffer *cb, const char *name)
+{
+    cb->end_encoder();
+    std::string label = name;
+    cb->cmd->addCompletedHandler([label](MTL::CommandBuffer *done) {
+        std::lock_guard<std::mutex> lock(profile_mutex);
+        double seconds = done->GPUEndTime() - done->GPUStartTime();
+        profile_seconds[label] += seconds;
+        if (seconds > 0.05 || done->status() == MTL::CommandBufferStatusError)
+            vkmtl_print("slow dispatch: %s %.0f ms%s\n", label.c_str(), seconds * 1000.0,
+                        done->status() == MTL::CommandBufferStatusError ? " (failed)" : "");
+    });
+    residency_commit();
+    cb->cmd->commit();
+    submitted(cb->cmd);
+    cb->cmd->release();
+    cb->cmd = g.queue->commandBuffer()->retain();
+}
+
+void profile_report(void)
+{
+    static int frames;
+    if (!profiling() || ++frames < 60)
+        return;
+    std::lock_guard<std::mutex> lock(profile_mutex);
+    double total = 0.0;
+    for (const auto &e : profile_seconds)
+        total += e.second;
+    vkmtl_print("GPU time per frame: %.2f ms\n", total * 1000.0 / frames);
+    for (const auto &e : profile_seconds)
+        vkmtl_print("  %-36s %7.2f ms\n", e.first.c_str(), e.second * 1000.0 / frames);
+    profile_seconds.clear();
+    frames = 0;
+}
+
+}
 
 extern "C" {
 
@@ -476,6 +596,21 @@ VkResult vkQueueSubmit(VkQueue, uint32_t count, const VkSubmitInfo *submits, VkF
                 continue;
             cb->end_encoder();
             cb->cmd->addCompletedHandler([](MTL::CommandBuffer *done) {
+                // With MTL_SHADER_VALIDATION=1 in the environment, invalid accesses that
+                // shaders made are reported here.
+                static int reported;
+                NS::Object *logs = reinterpret_cast<NS::Object *>(done->logs());
+                if (logs && reported < 40) {
+                    const char *text = logs->debugDescription()->utf8String();
+                    if (text && strstr(text, "nvalid")) {
+                        reported++;
+                        vkmtl_warning("shader validation: %.1500s\n", text);
+                    }
+                }
+                double seconds = done->GPUEndTime() - done->GPUStartTime();
+                gpu_microseconds += (long long)(seconds * 1e6);
+                if (seconds > 0.25)
+                    vkmtl_warning("command buffer took %.0f ms on the GPU\n", seconds * 1000.0);
                 if (done->status() == MTL::CommandBufferStatusError) {
                     NS::Error *error = done->error();
                     vkmtl_error("command buffer failed: %s\n",
@@ -585,12 +720,23 @@ void vkCmdDispatch(VkCommandBuffer handle, uint32_t x, uint32_t y, uint32_t z)
     if (!pipeline || !pipeline->compute || !x || !y || !z)
         return;
 
-    MTL::ComputeCommandEncoder *enc = cb->compute_encoder();
+    MTL::ComputeCommandEncoder *enc;
+    if (profiling())
+        profile_dispatch(cb, "(other)");
+    enc = cb->compute_encoder();
     enc->setComputePipelineState(pipeline->compute);
-    bind_stage_sets(cb, 1, pipeline->stages[0], [enc](MTL::Buffer *b, uint32_t i) { enc->setBuffer(b, 0, i); });
+    bind_stage_sets(cb, 1, pipeline->stages[0], [enc](const DescSet::Encoded &e, uint32_t i) {
+        enc->setBuffer(e.buffer, 0, i);
+        if (!e.written.empty())
+            enc->useResources(e.written.data(), e.written.size(), MTL::ResourceUsageRead | MTL::ResourceUsageWrite);
+        if (!e.read.empty())
+            enc->useResources(e.read.data(), e.read.size(), MTL::ResourceUsageRead);
+    });
     if (pipeline->stages[0].has_push)
         enc->setBytes(cb->push, sizeof(cb->push), PUSH_CONSTANT_BUFFER_INDEX);
     enc->dispatchThreadgroups(MTL::Size::Make(x, y, z), pipeline->threads_per_group);
+    if (profiling())
+        profile_dispatch(cb, pipeline->stages[0].module->name.c_str());
 }
 
 // ------------------------------------------------------------------------------ rendering

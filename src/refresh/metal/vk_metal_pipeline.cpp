@@ -25,6 +25,7 @@ GNU General Public License for more details.
 
 #include "vk_metal_internal.hpp"
 
+#include <set>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,24 +40,11 @@ const VkDescriptorSetLayoutBinding *SetLayoutVk::find(uint32_t binding) const
     return nullptr;
 }
 
-static uint64_t slot_value(const Slot &slot, bool sampler)
-{
-    if (sampler)
-        return slot.sampler ? slot.sampler->gpuResourceID()._impl : 0;
-    if (slot.texture)
-        return slot.texture->gpuResourceID()._impl;
-    if (slot.buffer)
-        return slot.buffer->gpu_address() + slot.offset;
-    if (slot.accel)
-        return slot.accel->as->gpuResourceID()._impl;
-    return 0;
-}
-
-MTL::Buffer *DescSet::encode(const ArgLayout *arg_layout)
+const DescSet::Encoded &DescSet::encode(const ArgLayout *arg_layout)
 {
     Encoded &enc = encoded[arg_layout];
     if (enc.buffer && enc.version == version)
-        return enc.buffer;
+        return enc;
 
     size_t size = arg_layout->fixed_size;
     for (const auto &e : arg_layout->entries) {
@@ -75,6 +63,9 @@ MTL::Buffer *DescSet::encode(const ArgLayout *arg_layout)
         enc.buffer->release();
     enc.buffer = g.device->newBuffer(size, MTL::ResourceStorageModeShared);
     enc.version = version;
+    enc.written.clear();
+    enc.read.clear();
+    std::set<const MTL::Resource *> seen;
 
     uint64_t *out = static_cast<uint64_t *>(enc.buffer->contents());
     memset(out, 0, size);
@@ -88,16 +79,24 @@ MTL::Buffer *DescSet::encode(const ArgLayout *arg_layout)
 
         for (size_t i = 0; i < count; i++) {
             if (arg_layout->samplers_only) {
-                out[e.offset / 8 + i] = slot_value(list[i], true);
+                out[e.offset / 8 + i] = list[i].sampler_value;
                 continue;
             }
+            const Slot &slot = list[i];
             if (e.offset >= 0)
-                out[e.offset / 8 + i] = slot_value(list[i], false);
+                out[e.offset / 8 + i] = slot.value;
+
+            if (!slot.resource || !seen.insert(slot.resource).second)
+                continue;
+            if (slot.type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+                enc.read.push_back(slot.resource);
+            else if (slot.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || slot.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                enc.written.push_back(slot.resource);
             if (e.sampler_offset >= 0)
-                out[e.sampler_offset / 8 + i] = slot_value(list[i], true);
+                out[e.sampler_offset / 8 + i] = slot.sampler_value;
         }
     }
-    return enc.buffer;
+    return enc;
 }
 
 // ------------------------------------------------------------------------------ shaders
@@ -128,7 +127,9 @@ static ShaderModule *parse_module(const char *text, size_t size)
         char word[64];
         ShaderModule::Bind b = {};
         int runtime = 0;
-        if (sscanf(line.c_str(), "stage %63s", word) == 1) {
+        if (sscanf(line.c_str(), "name %63s", word) == 1) {
+            module->name = word;
+        } else if (sscanf(line.c_str(), "stage %63s", word) == 1) {
             module->stage = word;
         } else if (sscanf(line.c_str(), "entry %63s", word) == 1) {
             module->entry = word;
@@ -261,6 +262,12 @@ struct DescPool {
 
 void free_set(DescSet *set)
 {
+    for (auto &b : set->slots) {
+        for (Slot &slot : b.second) {
+            if (slot.resource)
+                slot.resource->release();
+        }
+    }
     for (auto &e : set->encoded) {
         if (e.second.buffer)
             e.second.buffer->release();
@@ -397,30 +404,47 @@ void vkUpdateDescriptorSets(VkDevice, uint32_t write_count, const VkWriteDescrip
             case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
             case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
             case VK_DESCRIPTOR_TYPE_SAMPLER:
-                if (write.pImageInfo[i].imageView)
-                    slot.texture = VKMTL_HANDLE(ImageView, write.pImageInfo[i].imageView)->texture;
+                if (write.pImageInfo[i].imageView) {
+                    MTL::Texture *texture = VKMTL_HANDLE(ImageView, write.pImageInfo[i].imageView)->texture;
+                    slot.resource = texture;
+                    slot.value = texture->gpuResourceID()._impl;
+                }
                 if (write.pImageInfo[i].sampler)
-                    slot.sampler = VKMTL_HANDLE(Sampler, write.pImageInfo[i].sampler)->state;
+                    slot.sampler_value = VKMTL_HANDLE(Sampler, write.pImageInfo[i].sampler)->state->gpuResourceID()._impl;
                 break;
             case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
             case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-                slot.buffer = VKMTL_HANDLE(Buffer, write.pBufferInfo[i].buffer);
-                slot.offset = write.pBufferInfo[i].offset;
+                if (write.pBufferInfo[i].buffer) {
+                    Buffer *buffer = VKMTL_HANDLE(Buffer, write.pBufferInfo[i].buffer);
+                    slot.resource = buffer->mtl();
+                    slot.value = buffer->gpu_address() + write.pBufferInfo[i].offset;
+                }
                 break;
             case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
             case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
-                if (write.pTexelBufferView[i])
-                    slot.texture = VKMTL_HANDLE(BufferView, write.pTexelBufferView[i])->texture;
+                if (write.pTexelBufferView[i]) {
+                    MTL::Texture *texture = VKMTL_HANDLE(BufferView, write.pTexelBufferView[i])->texture;
+                    slot.resource = texture;
+                    slot.value = texture->gpuResourceID()._impl;
+                }
                 break;
             case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
-                if (accels && accels->pAccelerationStructures[i])
-                    slot.accel = VKMTL_HANDLE(Accel, accels->pAccelerationStructures[i]);
+                if (accels && accels->pAccelerationStructures[i]) {
+                    MTL::AccelerationStructure *as = VKMTL_HANDLE(Accel, accels->pAccelerationStructures[i])->as;
+                    slot.resource = as;
+                    slot.value = as->gpuResourceID()._impl;
+                }
                 break;
             default:
                 vkmtl_unsupported("descriptor type");
                 break;
             }
-            slots[write.dstArrayElement + i] = slot;
+            if (slot.resource)
+                slot.resource->retain();
+            Slot &old = slots[write.dstArrayElement + i];
+            if (old.resource)
+                old.resource->release();
+            old = slot;
         }
         set->version++;
     }

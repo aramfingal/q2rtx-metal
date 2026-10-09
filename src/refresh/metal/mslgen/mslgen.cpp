@@ -23,6 +23,7 @@ GNU General Public License for more details.
 // shader's argument buffer:
 //
 //   /*VKMTL
+//   name <shader file name>
 //   stage <comp|vert|frag>
 //   entry <function name>
 //   local <x> <y> <z>                                    (compute: threads per group)
@@ -204,6 +205,10 @@ int main(int argc, char **argv)
         std::string source = msl.compile();
 
         std::string bind;
+        std::string name = argv[1];
+        name = name.substr(name.find_last_of('/') + 1);
+        name = name.substr(0, name.rfind(".spv"));
+        bind += "name " + name + "\n";
         bind += std::string("stage ") + stage + "\n";
         bind += "entry " + msl.get_cleansed_entry_point_name("main", model) + "\n";
         if (model == spv::ExecutionModelGLCompute) {

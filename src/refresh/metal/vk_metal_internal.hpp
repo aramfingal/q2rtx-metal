@@ -124,13 +124,15 @@ struct SetLayoutVk {
     const VkDescriptorSetLayoutBinding *find(uint32_t binding) const;
 };
 
+// One descriptor. vkpt may destroy an image view or buffer while a descriptor still
+// names it, as Vulkan allows for descriptors that are not used again. The slot therefore
+// keeps what goes into the argument buffer by value, and holds a reference on the Metal
+// object so that declaring it to an encoder stays valid.
 struct Slot {
     VkDescriptorType type;
-    MTL::Texture *texture;
-    MTL::SamplerState *sampler;
-    Buffer *buffer;
-    size_t offset;
-    Accel *accel;
+    uint64_t value;          // resource ID of the texture or acceleration structure, or buffer address
+    uint64_t sampler_value;  // resource ID of the sampler
+    MTL::Resource *resource;
 };
 
 // Where the resources of one descriptor set live in a shader stage's argument buffer.
@@ -152,13 +154,20 @@ struct DescSet {
     std::map<uint32_t, std::vector<Slot>> slots;
     uint64_t version;
 
+    // Metal does not see what a shader reaches through an argument buffer, so it cannot
+    // order passes by it. What a set makes writable (storage buffers and images) and
+    // its acceleration structures are listed here and declared to the encoder; without
+    // that an acceleration structure build can run before the compute pass that writes
+    // its vertices, and a trace before the build it depends on.
     struct Encoded {
         MTL::Buffer *buffer;
         uint64_t version;
+        std::vector<const MTL::Resource *> written;
+        std::vector<const MTL::Resource *> read;
     };
     std::map<const ArgLayout *, Encoded> encoded;
 
-    MTL::Buffer *encode(const ArgLayout *layout);
+    const Encoded &encode(const ArgLayout *layout);
 };
 
 struct ShaderModule {
@@ -168,6 +177,7 @@ struct ShaderModule {
         bool runtime;
     };
     std::string source;
+    std::string name;
     std::string entry;
     std::string stage;
     bool has_push;
@@ -273,6 +283,12 @@ struct Device {
 // Development aid: with VKMTL_DUMP_FRAME=N in the environment, prints statistics of
 // every named 2D image when frame N is presented.
 void debug_frame(void);
+
+// Development aid: with VKMTL_PROFILE in the environment every compute dispatch gets a
+// command buffer of its own, and the GPU time per shader is printed every 60 frames.
+bool profiling(void);
+void profile_dispatch(CommandBuffer *cb, const char *name);
+void profile_report(void);
 
 void submitted(MTL::CommandBuffer *cmd);
 

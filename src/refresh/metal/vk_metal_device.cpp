@@ -28,6 +28,7 @@ GNU General Public License for more details.
 #include "vk_metal.h"
 
 #include <SDL2/SDL_metal.h>
+#include <atomic>
 #include <stdlib.h>
 #include <string.h>
 
@@ -921,6 +922,7 @@ VkResult vkQueuePresentKHR(VkQueue, const VkPresentInfoKHR *info)
     }
 
     debug_frame();
+    profile_report();
     drain_pool();
     return VK_SUCCESS;
 }
@@ -1117,6 +1119,13 @@ void debug_frame(void)
     if (target == -2) {
         const char *env = getenv("VKMTL_DUMP_FRAME");
         target = env ? atoi(env) : -1;
+    }
+    extern std::atomic<long long> gpu_microseconds;
+    static int stats = -1;
+    if (stats < 0)
+        stats = getenv("VKMTL_STATS") != nullptr;
+    if (stats && frame % 30 == 29) {
+        vkmtl_print("frame %d: %.1f ms GPU per frame\n", frame, gpu_microseconds.exchange(0) / 30000.0);
     }
     if (frame++ != target)
         return;
