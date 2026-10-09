@@ -304,6 +304,7 @@ SET(SRC_METAL
 	refresh/metal/main.c
 	refresh/metal/models.c
 	refresh/metal/textures.c
+	refresh/metal/world.c
 	refresh/metal/mtl_device.cpp
 )
 

@@ -319,7 +319,9 @@ void Sys_Error(const char *error, ...)
     va_end(argptr);
 
 #if USE_CLIENT
-    SDL_ShowSimpleMessageBox(
+    // an unattended run (vid_hidden) must not block on a dialog
+    if (!Cvar_VariableInteger("vid_hidden"))
+        SDL_ShowSimpleMessageBox(
 		    SDL_MESSAGEBOX_ERROR,
 		    PRODUCT " Fatal Error",
 		    text,

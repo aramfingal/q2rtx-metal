@@ -65,12 +65,56 @@ bool mtl_supports_raytracing(void);
 void mtl_set_drawable_size(int width, int height);
 void mtl_set_vsync(bool enabled);
 
+// Off-screen mode: frames are drawn into the backbuffer and never presented, so nothing
+// depends on the window being visible. Screenshots work as usual.
+void mtl_set_offscreen(bool enabled);
+
 // Textures. Pixel data is copied; the caller keeps ownership.
 bool mtl_texture_upload(uint32_t slot, int width, int height, mtl_format_t format,
                         const void *pixels, bool srgb, bool mipmaps, mtl_filter_t filter);
 void mtl_texture_set_filter(uint32_t slot, mtl_filter_t filter);
 void mtl_texture_free(uint32_t slot);
 void mtl_texture_free_all(void);
+
+// World geometry. Triangles are unindexed: triangle i uses positions[3 * i .. 3 * i + 2].
+// A model is a contiguous run of triangles that gets its own bottom-level acceleration
+// structure; model 0 is the static world, the others are the BSP's inline models.
+#define MTL_TRI_SKY 1u
+
+typedef struct {
+    float uv[3][2];
+    uint32_t tex;    // texture slot or MTL_TEX_WHITE
+    uint32_t flags;  // MTL_TRI_*
+} mtl_triangle_t;
+
+typedef struct {
+    uint32_t first_triangle;
+    uint32_t num_triangles;
+} mtl_model_t;
+
+bool mtl_world_upload(const float *positions, const mtl_triangle_t *triangles, int num_triangles,
+                      const mtl_model_t *models, int num_models);
+void mtl_world_free(void);
+
+#define MTL_MAX_INSTANCES 1024
+
+typedef struct {
+    uint32_t model;
+    float axis[3][3];  // model space x, y, z axes in world space
+    float origin[3];
+} mtl_instance_t;
+
+typedef struct {
+    float origin[3];
+    float forward[3], right[3], up[3];
+    float tan_half_fov_x, tan_half_fov_y;
+    const mtl_instance_t *instances;
+    int num_instances;
+} mtl_view_t;
+
+// Queues the 3D view for this frame. It is traced by the next mtl_end_frame and fills
+// the whole frame underneath the 2D quads. Without it the frame background is black.
+void mtl_render_view(const mtl_view_t *view);
 
 // Frame. mtl_end_frame waits for a free in-flight slot, acquires a drawable, clears it,
 // draws the queued 2D quads in order and presents. Returns false if no drawable was

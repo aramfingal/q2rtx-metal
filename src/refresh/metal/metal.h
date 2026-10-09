@@ -68,6 +68,11 @@ void MTL_Textures_UpdateFilters(void);
 void IMG_Load_Metal(image_t *image, byte *pic);
 void IMG_Unload_Metal(image_t *image);
 
+// world.c
+void MTL_World_Load(const char *name);
+void MTL_World_Free(void);
+void MTL_World_RenderView(const refdef_t *fd);
+
 // models.c
 int MOD_LoadMD2_Metal(model_t *model, const void *rawdata, size_t length, const char *mod_name);
 int MOD_LoadMD3_Metal(model_t *model, const void *rawdata, size_t length, const char *mod_name);

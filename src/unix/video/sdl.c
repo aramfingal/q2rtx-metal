@@ -135,6 +135,8 @@ VIDEO
 ===============================================================================
 */
 
+static cvar_t *vid_hidden;
+
 static void mode_changed(void)
 {
     SDL_GetWindowSize(sdl.window, &sdl.win_width, &sdl.win_height);
@@ -344,6 +346,15 @@ static bool init(graphics_api_t api)
 	Uint32 flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
 	vrect_t rc;
 
+    // vid_hidden 1: for automated runs on a machine that is in use. The window is never
+    // shown and the application is neither activated nor given a Dock icon; the renderer
+    // draws off-screen, so screenshots still work.
+    vid_hidden = Cvar_Get("vid_hidden", "0", CVAR_REFRESH);
+    if (vid_hidden->integer) {
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+        flags |= SDL_WINDOW_HIDDEN;
+    }
+
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) == -1) {
         Com_EPrintf("Couldn't initialize SDL video: %s\n", SDL_GetError());
         return false;
@@ -432,6 +443,10 @@ static bool init(graphics_api_t api)
 
     Com_Printf("Using SDL video driver: %s\n", SDL_GetCurrentVideoDriver());
 
+    // a hidden window gets no focus events: run as an unfocused window (60 fps, no mouse grab)
+    if (vid_hidden->integer)
+        CL_Activate(ACT_RESTORED);
+
     // activate disgusting wayland hacks
     sdl.wayland = !strcmp(SDL_GetCurrentVideoDriver(), "wayland");
 
@@ -478,7 +493,9 @@ static void window_event(SDL_WindowEvent *event)
     case SDL_WINDOWEVENT_FOCUS_LOST:
     case SDL_WINDOWEVENT_SHOWN:
     case SDL_WINDOWEVENT_HIDDEN:
-        if (flags & (SDL_WINDOW_INPUT_FOCUS | SDL_WINDOW_MOUSE_FOCUS)) {
+        if (vid_hidden->integer) {
+            active = ACT_RESTORED;
+        } else if (flags & (SDL_WINDOW_INPUT_FOCUS | SDL_WINDOW_MOUSE_FOCUS)) {
             active = ACT_ACTIVATED;
         } else if (flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) {
             active = ACT_MINIMIZED;

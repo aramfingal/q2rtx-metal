@@ -15,7 +15,7 @@ GNU General Public License for more details.
 // main.c -- Metal renderer entry points (the macOS counterpart of vkpt/main.c).
 //
 // Current state: device, swapchain, 2D drawing, textures and screenshots work. The 3D
-// view is not drawn yet; R_RenderFrame leaves it black until the path tracer is ported.
+// view is a first-hit image of the BSP world (see world.c) until the path tracer is ported.
 
 #include "metal.h"
 
@@ -67,6 +67,7 @@ static ref_type_t R_Init_Metal(bool total)
     }
 
     mtl_set_vsync(cvar_vsync->integer != 0);
+    mtl_set_offscreen(Cvar_VariableInteger("vid_hidden") != 0);
 
     // The client treats this renderer as the RTX one (path-traced effects, MD3 models).
     return REF_TYPE_VKPT;
@@ -76,6 +77,7 @@ static void R_Shutdown_Metal(bool total)
 {
     mtl_wait_idle();
 
+    MTL_World_Free();
     MTL_Draw_DiscardRawPic();
     IMG_FreeAll();
     mtl_shutdown();
@@ -113,7 +115,7 @@ static void R_ModeChanged_Metal(int width, int height, int flags)
 
 static void R_RenderFrame_Metal(refdef_t *fd)
 {
-    // The path tracer is not ported yet; the 3D view stays black.
+    MTL_World_RenderView(fd);
 }
 
 static void R_LightPoint_Metal(const vec3_t origin, vec3_t light)
@@ -128,6 +130,8 @@ static void R_BeginRegistration_Metal(const char *name)
 
     Com_AddConfigFile("maps/default.cfg", 0);
     Com_AddConfigFile(va("maps/%s.cfg", name), 0);
+
+    MTL_World_Load(name);
 }
 
 static void R_EndRegistration_Metal(void)
