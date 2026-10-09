@@ -40,6 +40,19 @@ if(CONFIG_BUILD_GLSLANG)
 endif()
 
 #
+# SPIRV-Cross (translates the vkpt shaders to Metal Shading Language)
+#
+
+if(CONFIG_METAL_RENDERER AND APPLE)
+    option(SPIRV_CROSS_ENABLE_TESTS OFF)
+    option(SPIRV_CROSS_SHARED OFF)
+
+    add_subdirectory(SPIRV-Cross)
+
+    set_target_properties(spirv-cross PROPERTIES FOLDER extern)
+endif()
+
+#
 # SDL 2
 #
 

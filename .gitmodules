@@ -23,3 +23,6 @@
 [submodule "extern/openal-soft"]
 	path = extern/openal-soft
 	url = https://github.com/kcat/openal-soft.git
+[submodule "extern/SPIRV-Cross"]
+	path = extern/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross.git

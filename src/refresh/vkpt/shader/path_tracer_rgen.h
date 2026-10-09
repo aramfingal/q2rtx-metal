@@ -76,6 +76,17 @@ uniform accelerationStructureEXT topLevelAS[TLAS_COUNT];
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+#ifdef TARGET_METAL
+// Metal ray queries have no shader binding table. The Metal renderer keeps each
+// instance's hit group offset in the top bits of its user ID, above the custom index.
+#define METAL_SBT_OFFSET_SHIFT 28
+#define QUERY_SBT_OFFSET(query) (rayQueryGetIntersectionInstanceCustomIndexEXT(query, false) >> METAL_SBT_OFFSET_SHIFT)
+#define QUERY_CUSTOM_INDEX(query, committed) (rayQueryGetIntersectionInstanceCustomIndexEXT(query, committed) & ((1u << METAL_SBT_OFFSET_SHIFT) - 1))
+#else
+#define QUERY_SBT_OFFSET(query) rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(query, false)
+#define QUERY_CUSTOM_INDEX(query, committed) rayQueryGetIntersectionInstanceCustomIndexEXT(query, committed)
+#endif
+
 // Just global variables in RQ mode.
 // No shadow payload necessary.
 RayPayloadGeometry ray_payload_geometry;
@@ -269,11 +280,11 @@ trace_geometry_ray(Ray ray, bool cull_back_faces, int instance_mask)
 	// Start traversal: return false if traversal is complete
 	while (rayQueryProceedEXT(rayQuery))
 	{
-		uint sbtOffset = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, false);
+		uint sbtOffset = QUERY_SBT_OFFSET(rayQuery);
 		int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false);
 		int instanceID = rayQueryGetIntersectionInstanceIdEXT(rayQuery, false);
 		int geometryIndex = rayQueryGetIntersectionGeometryIndexEXT(rayQuery, false);
-		uint instanceCustomIndex = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
+		uint instanceCustomIndex = QUERY_CUSTOM_INDEX(rayQuery, false);
 		float hitT = rayQueryGetIntersectionTEXT(rayQuery, false);
 		vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, false);
 		bool isProcedural = rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT;
@@ -293,7 +304,7 @@ trace_geometry_ray(Ray ray, bool cull_back_faces, int instance_mask)
 			rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true),
 			rayQueryGetIntersectionInstanceIdEXT(rayQuery, true),
 			rayQueryGetIntersectionGeometryIndexEXT(rayQuery, true),
-			rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true),
+			QUERY_CUSTOM_INDEX(rayQuery, true),
 			rayQueryGetIntersectionTEXT(rayQuery, true),
 			rayQueryGetIntersectionBarycentricsEXT(rayQuery, true));
 	}
@@ -395,10 +406,10 @@ trace_effects_ray(Ray ray, bool skip_procedural)
 	// Start traversal: return false if traversal is complete
 	while (rayQueryProceedEXT(rayQuery))
 	{
-		uint sbtOffset = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, false);
+		uint sbtOffset = QUERY_SBT_OFFSET(rayQuery);
 		int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false);
 		int instanceID = rayQueryGetIntersectionInstanceIdEXT(rayQuery, false);
-		uint instanceCustomIndex = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
+		uint instanceCustomIndex = QUERY_CUSTOM_INDEX(rayQuery, false);
 		float hitT = rayQueryGetIntersectionTEXT(rayQuery, false);
 		vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, false);
 		bool isProcedural = rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT;
@@ -493,11 +504,11 @@ trace_shadow_ray(Ray ray, int cull_mask)
 
 	while (rayQueryProceedEXT(rayQuery))
 	{
-		uint sbtOffset = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT(rayQuery, false);
+		uint sbtOffset = QUERY_SBT_OFFSET(rayQuery);
 		int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false);
 		int instanceID = rayQueryGetIntersectionInstanceIdEXT(rayQuery, false);
 		int geometryIndex = rayQueryGetIntersectionGeometryIndexEXT(rayQuery, false);
-		uint instanceCustomIndex = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
+		uint instanceCustomIndex = QUERY_CUSTOM_INDEX(rayQuery, false);
 		vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, false);
 		bool isProcedural = rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT;
 
@@ -555,7 +566,7 @@ trace_caustic_ray(Ray ray, int surface_medium)
 			rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true),
 			rayQueryGetIntersectionInstanceIdEXT(rayQuery, true),
 			rayQueryGetIntersectionGeometryIndexEXT(rayQuery, true),
-			rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true),
+			QUERY_CUSTOM_INDEX(rayQuery, true),
 			rayQueryGetIntersectionTEXT(rayQuery, true),
 			rayQueryGetIntersectionBarycentricsEXT(rayQuery, true));
 	}

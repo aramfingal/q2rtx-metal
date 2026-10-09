@@ -161,6 +161,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define BINDING_OFFSET_TERRAIN_NORMALS (BINDING_OFFSET_TERRAIN_ALBEDO + 1)
 #define BINDING_OFFSET_TERRAIN_DEPTH (BINDING_OFFSET_TERRAIN_NORMALS + 1)
 #define BINDING_OFFSET_TERRAIN_SHADOWMAP (BINDING_OFFSET_TERRAIN_DEPTH + 1)
+#define BINDING_OFFSET_TEXTURE_SAMPLER (BINDING_OFFSET_TERRAIN_SHADOWMAP + 1)
 
 
 #ifndef VKPT_SHADER
@@ -190,10 +191,26 @@ typedef char compile_time_check_num_images[(NUM_IMAGES == NUM_VKPT_IMAGES)*2-1];
 /***************************************************************************/
 
 /* general texture array for world, etc */
+#ifdef TARGET_METAL
+// Metal argument buffers cannot hold an unsized array of combined image samplers, so
+// the Metal renderer binds the textures on their own and samples them all with one sampler.
+#define TEXTURE_ARRAY_TYPE texture2D
+#define GLOBAL_TEXTURE(idx) sampler2D(global_texture_descriptors[nonuniformEXT(idx)], global_texture_sampler)
+#else
+#define TEXTURE_ARRAY_TYPE sampler2D
+#define GLOBAL_TEXTURE(idx) global_texture_descriptors[nonuniformEXT(idx)]
+#endif
 layout(
 	set = GLOBAL_TEXTURES_DESC_SET_IDX,
 	binding = GLOBAL_TEXTURES_TEX_ARR_BINDING_IDX
-) uniform sampler2D global_texture_descriptors[];
+) uniform TEXTURE_ARRAY_TYPE global_texture_descriptors[];
+
+#ifdef TARGET_METAL
+layout(
+	set = GLOBAL_TEXTURES_DESC_SET_IDX,
+	binding = BINDING_OFFSET_TEXTURE_SAMPLER
+) uniform sampler global_texture_sampler;
+#endif
 
 #define SAMPLER_r16ui   usampler2D
 #define SAMPLER_r32ui   usampler2D
@@ -306,7 +323,7 @@ global_texture(uint idx, vec2 tex_coord)
 {
 	if(idx >= NUM_GLOBAL_TEXTURES)
 		return vec4(1, 0, 1, 0);
-	return texture(global_texture_descriptors[nonuniformEXT(idx)], tex_coord);
+	return texture(GLOBAL_TEXTURE(idx), tex_coord);
 }
 
 vec4
@@ -314,7 +331,7 @@ global_textureLod(uint idx, vec2 tex_coord, float lod)
 {
 	if(idx >= NUM_GLOBAL_TEXTURES)
 		return vec4(1, 1, 0, 0);
-	return textureLod(global_texture_descriptors[nonuniformEXT(idx)], tex_coord, lod);
+	return textureLod(GLOBAL_TEXTURE(idx), tex_coord, lod);
 }
 
 vec4
@@ -322,7 +339,7 @@ global_textureGrad(uint idx, vec2 tex_coord, vec2 d_x, vec2 d_y)
 {
 	if(idx >= NUM_GLOBAL_TEXTURES)
 		return vec4(1, 1, 0, 0);
-	return textureGrad(global_texture_descriptors[nonuniformEXT(idx)], tex_coord, d_x, d_y);
+	return textureGrad(GLOBAL_TEXTURE(idx), tex_coord, d_x, d_y);
 }
 
 ivec2
@@ -330,7 +347,7 @@ global_textureSize(uint idx, int level)
 {
 	if(idx >= NUM_GLOBAL_TEXTURES)
 		return ivec2(0);
-	return textureSize(global_texture_descriptors[nonuniformEXT(idx)], level);
+	return textureSize(GLOBAL_TEXTURE(idx), level);
 }
 
 

@@ -390,6 +390,31 @@ IF(IS_64_BIT AND CONFIG_VKPT_RENDERER)
     endif()
 ENDIF()
 
+# The Metal renderer uses the vkpt shaders translated to the Metal Shading Language.
+# Ray tracing goes through ray queries, so only the ray generation shaders are needed,
+# built as compute shaders.
+IF(IS_64_BIT AND CONFIG_METAL_RENDERER AND APPLE)
+    include(../cmake/compileShaders.cmake)
+
+    foreach(s ${SRC_RT_SHADERS})
+        get_filename_component(shader_name ${s} NAME)
+        get_filename_component(shader_ext ${s} EXT)
+        if (shader_ext STREQUAL ".rgen")
+            compile_shader_metal(SOURCE_FILE ${s} OUTPUT_FILE_LIST metal_shaders OUTPUT_FILE_NAME "${shader_name}.query" DEFINES "-DKHR_RAY_QUERY" STAGE "comp")
+        endif()
+    endforeach()
+
+    foreach(s ${SRC_SHADERS})
+        compile_shader_metal(SOURCE_FILE ${s} INCLUDES "-I${CMAKE_CURRENT_SOURCE_DIR}/refresh/vkpt/fsr" OUTPUT_FILE_LIST metal_shaders)
+    endforeach()
+
+    add_custom_target(shaders_metal ALL DEPENDS ${metal_shaders})
+
+    if(TARGET glslang-standalone)
+        add_dependencies(shaders_metal glslang-standalone)
+    endif()
+ENDIF()
+
 # Embed version number
 ADD_DEFINITIONS(-DVERSION_MAJOR=${Q2RTX_VERSION_MAJOR})
 ADD_DEFINITIONS(-DVERSION_MINOR=${Q2RTX_VERSION_MINOR})
