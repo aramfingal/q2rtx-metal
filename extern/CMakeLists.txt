@@ -90,6 +90,15 @@ if(CONFIG_USE_CURL)
         option(HTTP_ONLY "" ON)
         option(CURL_ZLIB "" OFF)
         option(CMAKE_USE_OPENSSL "" OFF)
+        if(APPLE)
+            # macOS has no system OpenSSL: use Apple's TLS, and keep curl from
+            # linking optional libraries it finds in Homebrew.
+            option(CURL_USE_SECTRANSP "" ON)
+            option(CURL_USE_OPENSSL "" OFF)
+            option(CURL_USE_LIBPSL "" OFF)
+            option(CURL_USE_LIBSSH2 "" OFF)
+            option(USE_LIBIDN2 "" OFF)
+        endif()
         set(CURL_CA_PATH "none" CACHE PATH "")
 
         set(CMAKE_DEBUG_POSTFIX "" CACHE STRING "Override CMAKE_DEBUG_POSTFIX, which curl sets to '-d'")
