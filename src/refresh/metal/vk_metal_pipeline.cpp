@@ -154,7 +154,8 @@ MTL::Function *ShaderModule::function(const VkSpecializationInfo *spec)
         MTL::CompileOptions *options = MTL::CompileOptions::alloc()->init();
         options->setLanguageVersion(MTL::LanguageVersion3_1);
         // The shaders test for NaN and infinity, which fast math would optimize away.
-        options->setMathMode(MTL::MathModeSafe);
+        // Relaxed math keeps those and is measurably faster than safe math.
+        options->setMathMode(MTL::MathModeRelaxed);
         library = g.device->newLibrary(nsstr(source.c_str()), options, &error);
         options->release();
         if (!library) {

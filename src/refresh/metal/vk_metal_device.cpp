@@ -28,6 +28,7 @@ GNU General Public License for more details.
 #include "vk_metal.h"
 
 #include <SDL2/SDL_metal.h>
+#include <QuartzCore/CABase.h>
 #include <atomic>
 #include <stdlib.h>
 #include <string.h>
@@ -1125,7 +1126,11 @@ void debug_frame(void)
     if (stats < 0)
         stats = getenv("VKMTL_STATS") != nullptr;
     if (stats && frame % 30 == 29) {
-        vkmtl_print("frame %d: %.1f ms GPU per frame\n", frame, gpu_microseconds.exchange(0) / 30000.0);
+        static double last;
+        double now = CACurrentMediaTime();
+        vkmtl_print("frame %d: %.1f ms GPU per frame, %.1f frames per second\n", frame,
+                    gpu_microseconds.exchange(0) / 30000.0, last > 0.0 ? 30.0 / (now - last) : 0.0);
+        last = now;
     }
     if (frame++ != target)
         return;

@@ -286,6 +286,8 @@ void debug_frame(void);
 
 // Development aid: with VKMTL_PROFILE in the environment every compute dispatch gets a
 // command buffer of its own, and the GPU time per shader is printed every 60 frames.
+// Committing early changes the order in which vkpt's command buffers run, so the image
+// is not reliable in this mode (exposure in particular); the timings are.
 bool profiling(void);
 void profile_dispatch(CommandBuffer *cb, const char *name);
 void profile_report(void);
