@@ -29,6 +29,12 @@ and `video` folders for the full game) from Quake II, plus `blue_noise.pkz` and
 **What is different from the Vulkan renderer**: ray tracing always uses ray queries
 (`ray_tracing_api` has no effect) and HDR output is not available.
 
+**Performance**: the renderer is limited by the GPU, and the settings that matter are
+the ones of the original game. `viewsize` renders at a lower resolution and upscales
+(`viewsize 67` roughly doubles the frame rate), `drs_enable 1` with `drs_target <fps>`
+adjusts that automatically, and `pt_num_bounce_rays 0.5` halves the cost of the second
+light bounce. `timedemo 1; demo demo1` gives a repeatable number.
+
 **Unattended testing**: `vid_hidden 1` runs the game without a window, drawing
 off-screen, and `scripts/metal-shot.sh` uses it to run console commands and collect
 in-game screenshots:

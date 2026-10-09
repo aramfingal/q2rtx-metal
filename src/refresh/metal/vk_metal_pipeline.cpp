@@ -88,10 +88,10 @@ const DescSet::Encoded &DescSet::encode(const ArgLayout *arg_layout)
 
             if (!slot.resource || !seen.insert(slot.resource).second)
                 continue;
-            if (slot.type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
-                enc.read.push_back(slot.resource);
-            else if (slot.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || slot.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            if (slot.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || slot.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
                 enc.written.push_back(slot.resource);
+            else if (e.count)
+                enc.read.push_back(slot.resource);
             if (e.sampler_offset >= 0)
                 out[e.sampler_offset / 8 + i] = slot.sampler_value;
         }

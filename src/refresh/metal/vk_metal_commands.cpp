@@ -52,7 +52,7 @@ MTL::ComputeCommandEncoder *CommandBuffer::compute_encoder()
     if (!compute) {
         end_encoder();
         compute = cmd->computeCommandEncoder()->retain();
-        compute->useResource(g.order_token, MTL::ResourceUsageWrite);
+        compute->useResource(g.order_token, MTL::ResourceUsageRead);
     }
     return compute;
 }
@@ -720,9 +720,17 @@ void vkCmdWriteTimestamp(VkCommandBuffer handle, VkPipelineStageFlagBits, VkQuer
     att->setStartOfEncoderSampleIndex(query);
     att->setEndOfEncoderSampleIndex(MTL::CounterDontSample);
     // The pass has to do something, or Metal drops it along with its sample. Writing
-    // the ordering token also places it after the passes recorded before it.
+    // the ordering token places it exactly between the passes around it, which costs
+    // the overlap Metal otherwise finds between passes (about 5% of the frame rate).
+    // That is only done while something reads the timestamps: the profiler overlay or
+    // dynamic resolution scaling.
+    static MTL::Buffer *scratch;
+    if (!scratch)
+        scratch = g.device->newBuffer(16, MTL::ResourceStorageModePrivate);
+    bool exact = Cvar_VariableInteger("profiler") != 0 || Cvar_VariableInteger("drs_enable") != 0;
+
     MTL::BlitCommandEncoder *blit = cb->cmd->blitCommandEncoder(pass);
-    blit->fillBuffer(g.order_token, NS::Range::Make(0, 16), 0);
+    blit->fillBuffer(exact ? g.order_token : scratch, NS::Range::Make(0, 16), 0);
     blit->endEncoding();
 }
 
@@ -796,7 +804,7 @@ void vkCmdBeginRenderPass(VkCommandBuffer handle, const VkRenderPassBeginInfo *i
     }
 
     cb->render = cb->cmd->renderCommandEncoder(pass)->retain();
-    cb->render->useResource(g.order_token, MTL::ResourceUsageWrite, MTL::RenderStageVertex | MTL::RenderStageFragment);
+    cb->render->useResource(g.order_token, MTL::ResourceUsageRead, MTL::RenderStageVertex | MTL::RenderStageFragment);
     cb->target_width = fb->width;
     cb->target_height = fb->height;
 }
@@ -1001,7 +1009,7 @@ void vkCmdBuildAccelerationStructuresKHR(VkCommandBuffer handle, uint32_t count,
     cb->end_encoder();
 
     MTL::AccelerationStructureCommandEncoder *enc = cb->cmd->accelerationStructureCommandEncoder();
-    enc->useResource(g.order_token, MTL::ResourceUsageWrite);
+    enc->useResource(g.order_token, MTL::ResourceUsageRead);
     for (uint32_t i = 0; i < count; i++) {
         Accel *dst = VKMTL_HANDLE(Accel, infos[i].dstAccelerationStructure);
         MTL::AccelerationStructureDescriptor *desc = accel_descriptor(&infos[i], nullptr, ranges[i], true);

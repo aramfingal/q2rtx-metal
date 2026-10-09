@@ -26,6 +26,7 @@ GNU General Public License for more details.
 #include <vulkan/vulkan.h>
 
 #include <map>
+#include <stdlib.h>
 #include <string>
 #include <vector>
 
@@ -155,10 +156,13 @@ struct DescSet {
     uint64_t version;
 
     // Metal does not see what a shader reaches through an argument buffer, so it cannot
-    // order passes by it. What a set makes writable (storage buffers and images) and
-    // its acceleration structures are listed here and declared to the encoder; without
+    // order passes by it, and it does run passes out of order or side by side when it
+    // believes they are independent. What a set makes writable (storage buffers and
+    // images) and what it only reads (sampled images, uniform and texel buffers,
+    // acceleration structures) are listed here and declared to the encoder. Without
     // that an acceleration structure build can run before the compute pass that writes
-    // its vertices, and a trace before the build it depends on.
+    // its vertices, and a pass can sample an image before the pass that renders it.
+    // The big array of game textures is left out: passes never write those.
     struct Encoded {
         MTL::Buffer *buffer;
         uint64_t version;
@@ -285,10 +289,9 @@ struct Device {
     std::vector<ArgLayout *> arg_layouts;
     std::vector<Image *> images;
 
-    // Written by every pass. Metal orders passes only by the resources it can see them
-    // use, and most of what vkpt's passes share goes through argument buffers, which it
-    // cannot see. A buffer that every pass writes makes the passes of a command buffer
-    // run in the order they were recorded, as they would on Vulkan.
+    // Places timestamp samples among the passes: every pass reads this buffer and a
+    // timestamp marker that has to be exact writes it, so the marker runs after the
+    // passes recorded before it and before those recorded after it.
     MTL::Buffer *order_token;
 };
 
@@ -311,6 +314,7 @@ void blit_scaled(CommandBuffer *cb, MTL::Texture *src, uint32_t src_level, uint3
                  uint32_t dst_slice, const VkOffset3D dst_offsets[2], bool linear);
 
 void vkmtl_unsupported(const char *what);
+
 
 }  // namespace vkmtl
 
